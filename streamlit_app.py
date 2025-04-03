@@ -350,6 +350,7 @@ def save_uploaded_file(uploaded_file, file_type):
         return None
 
 # UI Components with simplified implementation
+# Update in the sidebar function
 def sidebar():
     with st.sidebar:
         st.title("🚀 ROH-Ads")
@@ -369,7 +370,7 @@ def sidebar():
         
         if selected_language != st.session_state.language:
             st.session_state.language = selected_language
-            st.experimental_rerun()
+            st.rerun()  # Changed from st.experimental_rerun()
                 
         st.markdown("---")
         
@@ -387,7 +388,6 @@ def sidebar():
         """)
         
         return page
-
 # Update the business_profile_page function to handle custom industries
 def business_profile_page():
     st.header("🏢 Business Profile")
