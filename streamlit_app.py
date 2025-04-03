@@ -388,6 +388,7 @@ def sidebar():
         
         return page
 
+# Update the business_profile_page function to handle custom industries
 def business_profile_page():
     st.header("🏢 Business Profile")
     st.write("Let's gather some information about your business to create tailored marketing strategies.")
@@ -439,7 +440,21 @@ def business_profile_page():
                 # Update session state with extracted data
                 for key, value in extracted_data.items():
                     if value and key in st.session_state.business_data:
-                        st.session_state.business_data[key] = value
+                        # For industry field, check if it matches predefined options
+                        if key == "industry":
+                            industry_options = [
+                                "", "E-commerce", "SaaS", "Healthcare", "Education", "Finance", 
+                                "Retail", "Real Estate", "Food & Beverage", "Manufacturing", "Other"
+                            ]
+                            # If extracted industry is not in our predefined list, set it to "Other"
+                            if value not in industry_options:
+                                st.session_state.business_data[key] = "Other"
+                                # Store the original value to display later
+                                st.session_state.custom_industry = value
+                            else:
+                                st.session_state.business_data[key] = value
+                        else:
+                            st.session_state.business_data[key] = value
                 
                 st.success("Media analyzed and form auto-filled!")
                 st.write("Here's what we extracted:")
@@ -458,18 +473,34 @@ def business_profile_page():
             value=st.session_state.business_data["business_name"]
         )
         
+        industry_index = 0
+        industry_options = [
+            "", "E-commerce", "SaaS", "Healthcare", "Education", "Finance", 
+            "Retail", "Real Estate", "Food & Beverage", "Manufacturing", "Other"
+        ]
+        
+        if st.session_state.business_data["industry"] != "":
+            if st.session_state.business_data["industry"] in industry_options:
+                industry_index = industry_options.index(st.session_state.business_data["industry"])
+            else:
+                # Default to "Other" if the industry is not in our list
+                industry_index = industry_options.index("Other")
+        
         st.session_state.business_data["industry"] = st.selectbox(
             "Industry",
-            options=[
-                "", "E-commerce", "SaaS", "Healthcare", "Education", "Finance", 
-                "Retail", "Real Estate", "Food & Beverage", "Manufacturing", "Other"
-            ],
-            index=0 if st.session_state.business_data["industry"] == "" else 
-                  list([
-                      "", "E-commerce", "SaaS", "Healthcare", "Education", "Finance", 
-                      "Retail", "Real Estate", "Food & Beverage", "Manufacturing", "Other"
-                  ]).index(st.session_state.business_data["industry"])
+            options=industry_options,
+            index=industry_index
         )
+        
+        # Show custom industry input if "Other" is selected
+        if st.session_state.business_data["industry"] == "Other":
+            custom_industry = ""
+            if hasattr(st.session_state, 'custom_industry'):
+                custom_industry = st.session_state.custom_industry
+            
+            custom_input = st.text_input("Please specify industry", value=custom_industry)
+            if custom_input:
+                st.session_state.custom_industry = custom_input
         
         st.session_state.business_data["budget_range"] = st.select_slider(
             "Marketing Budget Range",
@@ -501,7 +532,13 @@ def business_profile_page():
     )
     
     if st.button("Save Profile"):
+        # Add validation for mandatory fields
         if st.session_state.business_data["business_name"] and st.session_state.business_data["industry"]:
+            # Handle "Other" industry case
+            industry_display = st.session_state.business_data["industry"]
+            if industry_display == "Other" and hasattr(st.session_state, 'custom_industry'):
+                industry_display = f"Other: {st.session_state.custom_industry}"
+            
             st.success("Business profile saved successfully!")
             
             # Mention uploaded media in the prompt
@@ -518,7 +555,7 @@ def business_profile_page():
             analysis_prompt = f"""
             Analyze this business profile for marketing strategy opportunities:
             Business Name: {st.session_state.business_data['business_name']}
-            Industry: {st.session_state.business_data['industry']}
+            Industry: {industry_display}
             Marketing Goals: {st.session_state.business_data['marketing_goals']}
             Budget Range: {st.session_state.business_data['budget_range']}
             Challenges: {st.session_state.business_data['current_challenges']}
