@@ -44,6 +44,8 @@ if 'current_tts_text' not in st.session_state:
 if 'uploaded_files' not in st.session_state:
     st.session_state.uploaded_files = {
         'images': [],
+        'videos': [],
+        'audio': [],
         'documents': []
     }
 if 'language' not in st.session_state:
@@ -125,6 +127,22 @@ def generate_with_gemini(prompt, media_files=None, language="en"):
                         
                         if media_type.startswith('image'):
                             # Handle image
+                            parts.append({
+                                "inlineData": {
+                                    "mimeType": media_file.type,
+                                    "data": encode_media(media_file)
+                                }
+                            })
+                        elif media_type.startswith('video'):
+                            # Handle video - currently limited in Gemini but we'll try
+                            parts.append({
+                                "inlineData": {
+                                    "mimeType": media_file.type,
+                                    "data": encode_media(media_file)
+                                }
+                            })
+                        elif media_type.startswith('audio'):
+                            # Handle audio - currently limited in Gemini but we'll try
                             parts.append({
                                 "inlineData": {
                                     "mimeType": media_file.type,
@@ -233,7 +251,7 @@ def analyze_media_for_autofill(media_files):
     try:
         # Prepare a prompt for Gemini to analyze the media
         analysis_prompt = """
-        Analyze the uploaded media and extract the following business information:
+        Analyze the uploaded media (image, video, audio, or document) and extract the following business information:
         1. Business name
         2. Industry type
         3. Current challenges or problems they might be facing
@@ -280,6 +298,21 @@ def analyze_media_for_autofill(media_files):
                     match = re.search(r'industry["\s:]+([^"\n,]+)', analysis_result, re.IGNORECASE)
                     if match:
                         extracted_data["industry"] = match.group(1).strip()
+                
+                if "current_challenges" in analysis_result.lower():
+                    match = re.search(r'current_challenges["\s:]+([^"\n,]+)', analysis_result, re.IGNORECASE)
+                    if match:
+                        extracted_data["current_challenges"] = match.group(1).strip()
+                
+                if "budget_range" in analysis_result.lower():
+                    match = re.search(r'budget_range["\s:]+([^"\n,]+)', analysis_result, re.IGNORECASE)
+                    if match:
+                        extracted_data["budget_range"] = match.group(1).strip()
+                
+                if "five_year_traction" in analysis_result.lower():
+                    match = re.search(r'five_year_traction["\s:]+([^"\n,]+)', analysis_result, re.IGNORECASE)
+                    if match:
+                        extracted_data["five_year_traction"] = match.group(1).strip()
             
             # Ensure we have all the expected keys
             expected_keys = ['business_name', 'industry', 'current_challenges', 'budget_range', 'five_year_traction']
@@ -304,6 +337,10 @@ def save_uploaded_file(uploaded_file, file_type):
         # Add to session state
         if file_type == "image":
             st.session_state.uploaded_files['images'].append(file_details)
+        elif file_type == "video":
+            st.session_state.uploaded_files['videos'].append(file_details)
+        elif file_type == "audio":
+            st.session_state.uploaded_files['audio'].append(file_details)
         elif file_type == "document":
             st.session_state.uploaded_files['documents'].append(file_details)
         
@@ -312,7 +349,7 @@ def save_uploaded_file(uploaded_file, file_type):
         st.error(f"Error saving file details: {str(e)}")
         return None
 
-# UI Components with extremely simplified implementation
+# UI Components with simplified implementation
 def sidebar():
     with st.sidebar:
         st.title("🚀 ROH-Ads")
@@ -333,25 +370,6 @@ def sidebar():
         if selected_language != st.session_state.language:
             st.session_state.language = selected_language
             st.experimental_rerun()
-        
-        st.markdown("---")
-        
-        # Simplified upload section - focus on core functionality
-        st.subheader("📁 Media Upload")
-        
-        # Image Upload
-        uploaded_image = st.file_uploader("Upload Images", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
-        if uploaded_image:
-            for img in uploaded_image:
-                save_uploaded_file(img, "image")
-                st.success(f"Uploaded image: {img.name}")
-                
-        # Document Upload
-        uploaded_docs = st.file_uploader("Upload Documents", type=["pdf", "txt", "docx"], accept_multiple_files=True)
-        if uploaded_docs:
-            for doc in uploaded_docs:
-                save_uploaded_file(doc, "document")
-                st.success(f"Uploaded document: {doc.name}")
                 
         st.markdown("---")
         
@@ -365,6 +383,7 @@ def sidebar():
         st.markdown("### About ROH-Ads")
         st.write("""
         ROH-Ads is an AI-powered marketing strategy assistant that helps businesses create effective marketing strategies.
+        Upload any media (images, videos, audio, documents) for AI analysis and auto-filling of business information.
         """)
         
         return page
@@ -373,33 +392,47 @@ def business_profile_page():
     st.header("🏢 Business Profile")
     st.write("Let's gather some information about your business to create tailored marketing strategies.")
     
-    # Prepare upload columns for media
-    st.subheader("Upload Business Media for Auto-Analysis")
-    st.write("Upload your business media to automatically extract information")
+    # Enhanced media upload section for auto-analysis
+    st.subheader("Upload Media for Auto-Analysis")
+    st.write("Upload any media to automatically extract business information. We support images, videos, audio, and documents.")
     
-    col1, col2 = st.columns(2)
+    # Combined media uploader
+    uploaded_media = st.file_uploader(
+        "Upload media files", 
+        type=["jpg", "jpeg", "png", "mp4", "mov", "avi", "mp3", "wav", "ogg", "pdf", "txt", "docx"], 
+        accept_multiple_files=True,
+        key="profile_media"
+    )
     
-    with col1:
-        logo = st.file_uploader("Company Logo", type=["jpg", "jpeg", "png"], key="profile_logo")
-        if logo:
-            st.image(logo, width=200)
-            save_uploaded_file(logo, "image")
+    media_files_for_analysis = []
     
-    with col2:
-        business_docs = st.file_uploader("Business Documents", type=["pdf", "txt", "docx"], key="profile_docs")
-        if business_docs:
-            save_uploaded_file(business_docs, "document")
-            st.write(f"Uploaded: {business_docs.name}")
+    if uploaded_media:
+        col1, col2, col3 = st.columns(3)
+        
+        for i, media in enumerate(uploaded_media):
+            col = [col1, col2, col3][i % 3]
+            with col:
+                try:
+                    if media.type.startswith('image'):
+                        st.image(media, width=200, caption=media.name)
+                        save_uploaded_file(media, "image")
+                    elif media.type.startswith('video'):
+                        st.video(media)
+                        save_uploaded_file(media, "video")
+                    elif media.type.startswith('audio'):
+                        st.audio(media)
+                        save_uploaded_file(media, "audio")
+                    else:  # Document
+                        st.write(f"Uploaded: {media.name}")
+                        save_uploaded_file(media, "document")
+                    
+                    media_files_for_analysis.append(media)
+                except Exception as e:
+                    st.error(f"Error displaying {media.name}: {str(e)}")
     
     # Auto-analyze button
-    media_files_for_analysis = []
-    if logo:
-        media_files_for_analysis.append(logo)
-    if business_docs:
-        media_files_for_analysis.append(business_docs)
-    
     if media_files_for_analysis and st.button("Auto-Analyze Media"):
-        with st.spinner("Analyzing your business media..."):
+        with st.spinner("Analyzing your media files with AI..."):
             try:
                 extracted_data = analyze_media_for_autofill(media_files_for_analysis)
                 
@@ -409,6 +442,8 @@ def business_profile_page():
                         st.session_state.business_data[key] = value
                 
                 st.success("Media analyzed and form auto-filled!")
+                st.write("Here's what we extracted:")
+                st.json(extracted_data)
             except Exception as e:
                 st.error(f"Auto-analysis failed: {str(e)}")
                 st.info("You can still manually fill out the form below.")
@@ -473,6 +508,10 @@ def business_profile_page():
             uploaded_media_text = ""
             if st.session_state.uploaded_files['images']:
                 uploaded_media_text += f"They have uploaded {len(st.session_state.uploaded_files['images'])} images. "
+            if st.session_state.uploaded_files['videos']:
+                uploaded_media_text += f"They have uploaded {len(st.session_state.uploaded_files['videos'])} videos. "
+            if st.session_state.uploaded_files['audio']:
+                uploaded_media_text += f"They have uploaded {len(st.session_state.uploaded_files['audio'])} audio files. "
             if st.session_state.uploaded_files['documents']:
                 uploaded_media_text += f"They have uploaded {len(st.session_state.uploaded_files['documents'])} documents. "
             
@@ -514,11 +553,12 @@ def strategy_generator_page():
     
     st.write(f"Generating marketing strategies for **{st.session_state.business_data['business_name']}**")
     
-    # Media upload specifically for strategy
+    # Enhanced media upload section for strategy
     st.subheader("Upload Strategy-Related Media")
+    
     strategy_media = st.file_uploader(
-        "Upload relevant market research, competitor analyses, etc.", 
-        type=["jpg", "jpeg", "png", "pdf", "docx", "txt"], 
+        "Upload media files for strategy analysis", 
+        type=["jpg", "jpeg", "png", "mp4", "mov", "avi", "mp3", "wav", "ogg", "pdf", "txt", "docx"], 
         accept_multiple_files=True,
         key="strategy_media"
     )
@@ -526,18 +566,28 @@ def strategy_generator_page():
     strategy_media_files = []
     
     if strategy_media:
-        for media in strategy_media:
-            try:
-                if media.type.startswith('image'):
-                    save_uploaded_file(media, "image")
-                    st.image(media, width=150, caption=media.name)
+        col1, col2, col3 = st.columns(3)
+        
+        for i, media in enumerate(strategy_media):
+            col = [col1, col2, col3][i % 3]
+            with col:
+                try:
+                    if media.type.startswith('image'):
+                        st.image(media, width=150, caption=media.name)
+                        save_uploaded_file(media, "image")
+                    elif media.type.startswith('video'):
+                        st.video(media)
+                        save_uploaded_file(media, "video")
+                    elif media.type.startswith('audio'):
+                        st.audio(media)
+                        save_uploaded_file(media, "audio")
+                    else:  # Document
+                        st.write(f"Uploaded document: {media.name}")
+                        save_uploaded_file(media, "document")
+                    
                     strategy_media_files.append(media)
-                else:  # Document
-                    save_uploaded_file(media, "document")
-                    st.write(f"Uploaded document: {media.name}")
-                    strategy_media_files.append(media)
-            except Exception as e:
-                st.error(f"Error processing file {media.name}: {str(e)}")
+                except Exception as e:
+                    st.error(f"Error displaying {media.name}: {str(e)}")
     
     st.markdown("---")
     
@@ -564,6 +614,10 @@ def strategy_generator_page():
             uploaded_media_text = ""
             if st.session_state.uploaded_files['images']:
                 uploaded_media_text += f"They have uploaded {len(st.session_state.uploaded_files['images'])} images. "
+            if st.session_state.uploaded_files['videos']:
+                uploaded_media_text += f"They have uploaded {len(st.session_state.uploaded_files['videos'])} videos. "
+            if st.session_state.uploaded_files['audio']:
+                uploaded_media_text += f"They have uploaded {len(st.session_state.uploaded_files['audio'])} audio files. "
             if st.session_state.uploaded_files['documents']:
                 uploaded_media_text += f"They have uploaded {len(st.session_state.uploaded_files['documents'])} documents. "
                 
@@ -630,11 +684,12 @@ def campaign_planning_page():
     
     st.subheader("Create a Marketing Campaign")
     
-    # Media upload specifically for campaign
+    # Enhanced media upload section for campaign
     st.subheader("Upload Campaign-Related Media")
+    
     campaign_media = st.file_uploader(
-        "Upload creative assets, brand guidelines, etc.", 
-        type=["jpg", "jpeg", "png", "pdf", "docx", "txt"], 
+        "Upload media files for campaign planning", 
+        type=["jpg", "jpeg", "png", "mp4", "mov", "avi", "mp3", "wav", "ogg", "pdf", "txt", "docx"], 
         accept_multiple_files=True,
         key="campaign_media"
     )
@@ -642,18 +697,29 @@ def campaign_planning_page():
     campaign_media_files = []
     
     if campaign_media:
-        for media in campaign_media:
-            try:
-                if media.type.startswith('image'):
-                    save_uploaded_file(media, "image")
-                    st.image(media, width=150, caption=media.name)
+        col1, col2, col3 = st.columns(3)
+        
+        for i, media in enumerate(campaign_media):
+            col = [col1, col2, col3][i % 3]
+            with col:
+                try:
+                    if media.type.startswith('image'):
+                        st.image(media, width=150, caption=media.name)
+                        save_uploaded_file(media, "image")
+                    elif media.type.startswith('video'):
+                        st.video(media)
+                        save_uploaded_file(media, "video")
+                    elif media.type.startswith('audio'):
+                        st.audio(media)
+                        save_uploaded_file(media, "audio")
+                    # Missing part of the code from the document content:
+                    else:  # Document
+                        st.write(f"Uploaded document: {media.name}")
+                        save_uploaded_file(media, "document")
+                    
                     campaign_media_files.append(media)
-                else:  # Document
-                    save_uploaded_file(media, "document")
-                    st.write(f"Uploaded document: {media.name}")
-                    campaign_media_files.append(media)
-            except Exception as e:
-                st.error(f"Error processing file {media.name}: {str(e)}")
+                except Exception as e:
+                    st.error(f"Error displaying {media.name}: {str(e)}")
     
     st.markdown("---")
     
@@ -690,6 +756,10 @@ def campaign_planning_page():
             uploaded_media_text = ""
             if st.session_state.uploaded_files['images']:
                 uploaded_media_text += f"They have uploaded {len(st.session_state.uploaded_files['images'])} images. "
+            if st.session_state.uploaded_files['videos']:
+                uploaded_media_text += f"They have uploaded {len(st.session_state.uploaded_files['videos'])} videos. "
+            if st.session_state.uploaded_files['audio']:
+                uploaded_media_text += f"They have uploaded {len(st.session_state.uploaded_files['audio'])} audio files. "
             if st.session_state.uploaded_files['documents']:
                 uploaded_media_text += f"They have uploaded {len(st.session_state.uploaded_files['documents'])} documents. "
                 
@@ -738,7 +808,6 @@ def campaign_planning_page():
                         file_name=f"{campaign_name}_campaign_plan.txt",
                         mime="text/plain"
                     )
-                # Continuing from the "st.error(" line in campaign_planning_page function:
                 except Exception as e:
                     st.error(f"Campaign plan generation error: {str(e)}")
                     st.info("Try again with fewer media files or a simpler request.")
@@ -750,7 +819,7 @@ def media_gallery_page():
     st.write("View and manage your uploaded media files")
     
     # Filter tabs
-    tab1, tab2 = st.tabs(["Images", "Documents"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Images", "Videos", "Audio", "Documents"])
     
     with tab1:
         st.subheader("Uploaded Images")
@@ -767,6 +836,28 @@ def media_gallery_page():
             st.info("No images uploaded yet")
     
     with tab2:
+        st.subheader("Uploaded Videos")
+        if st.session_state.uploaded_files['videos']:
+            for video_info in st.session_state.uploaded_files['videos']:
+                st.write(f"**{video_info['FileName']}**")
+                st.write(f"Type: {video_info['FileType']}")
+                st.write(f"Size: {video_info['FileSize']/1024/1024:.1f} MB")
+                st.markdown("---")
+        else:
+            st.info("No videos uploaded yet")
+    
+    with tab3:
+        st.subheader("Uploaded Audio")
+        if st.session_state.uploaded_files['audio']:
+            for audio_info in st.session_state.uploaded_files['audio']:
+                st.write(f"**{audio_info['FileName']}**")
+                st.write(f"Type: {audio_info['FileType']}")
+                st.write(f"Size: {audio_info['FileSize']/1024/1024:.1f} MB")
+                st.markdown("---")
+        else:
+            st.info("No audio files uploaded yet")
+    
+    with tab4:
         st.subheader("Uploaded Documents")
         if st.session_state.uploaded_files['documents']:
             for doc_info in st.session_state.uploaded_files['documents']:
@@ -780,7 +871,7 @@ def media_gallery_page():
     # Upload new media
     st.subheader("Upload New Media")
     
-    upload_type = st.radio("Select media type", ["Image", "Document"])
+    upload_type = st.radio("Select media type", ["Image", "Video", "Audio", "Document"])
     
     if upload_type == "Image":
         new_images = st.file_uploader("Upload new images", 
@@ -796,6 +887,34 @@ def media_gallery_page():
                 except Exception as e:
                     st.error(f"Error uploading {img.name}: {str(e)}")
     
+    elif upload_type == "Video":
+        new_videos = st.file_uploader("Upload new videos", 
+                                     type=["mp4", "mov", "avi"], 
+                                     accept_multiple_files=True,
+                                     key="gallery_videos")
+        if new_videos:
+            for vid in new_videos:
+                try:
+                    save_uploaded_file(vid, "video")
+                    st.success(f"Uploaded video: {vid.name}")
+                    st.video(vid)
+                except Exception as e:
+                    st.error(f"Error uploading {vid.name}: {str(e)}")
+    
+    elif upload_type == "Audio":
+        new_audio = st.file_uploader("Upload new audio", 
+                                    type=["mp3", "wav", "ogg"], 
+                                    accept_multiple_files=True,
+                                    key="gallery_audio")
+        if new_audio:
+            for aud in new_audio:
+                try:
+                    save_uploaded_file(aud, "audio")
+                    st.success(f"Uploaded audio: {aud.name}")
+                    st.audio(aud)
+                except Exception as e:
+                    st.error(f"Error uploading {aud.name}: {str(e)}")
+    
     elif upload_type == "Document":
         new_docs = st.file_uploader("Upload new documents", 
                                    type=["pdf", "txt", "docx"], 
@@ -809,24 +928,53 @@ def media_gallery_page():
                 except Exception as e:
                     st.error(f"Error uploading {doc.name}: {str(e)}")
 
-    # Media analysis section with simplified functionality
-    if st.session_state.uploaded_files['images'] or st.session_state.uploaded_files['documents']:
+    # Media analysis section
+    if (st.session_state.uploaded_files['images'] or st.session_state.uploaded_files['videos'] or
+        st.session_state.uploaded_files['audio'] or st.session_state.uploaded_files['documents']):
         st.subheader("Media Analysis")
         
-        if st.button("Analyze All Media"):
+        all_media_files = []
+        # Select media for analysis
+        st.write("Select which media to analyze (max 3 for optimal performance):")
+        
+        # Function to display file selection
+        def show_file_selection(file_type, file_list):
+            if file_list:
+                selected = st.multiselect(
+                    f"Select {file_type} files to analyze:",
+                    options=[file["FileName"] for file in file_list],
+                    key=f"select_{file_type.lower()}"
+                )
+                return selected
+            return []
+        
+        # Get selections
+        selected_images = show_file_selection("Image", st.session_state.uploaded_files['images'])
+        selected_videos = show_file_selection("Video", st.session_state.uploaded_files['videos'])
+        selected_audio = show_file_selection("Audio", st.session_state.uploaded_files['audio'])
+        selected_docs = show_file_selection("Document", st.session_state.uploaded_files['documents'])
+        
+        if (selected_images or selected_videos or selected_audio or selected_docs) and st.button("Analyze Selected Media"):
             st.write("Analyzing media...")
             
-            # Generate generic analysis based on the metadata
+            # This is a placeholder - in a real app, we'd need to retrieve the actual file objects
+            # For now, we'll generate a generic analysis using Gemini
             analysis_prompt = f"""
-            Provide a general analysis of media for marketing purposes, considering:
-            - Number of images: {len(st.session_state.uploaded_files['images'])}
-            - Number of documents: {len(st.session_state.uploaded_files['documents'])}
+            Provide an analysis of the selected media files for marketing purposes:
+            
+            Selected files:
+            - Images: {', '.join(selected_images) if selected_images else 'None'}
+            - Videos: {', '.join(selected_videos) if selected_videos else 'None'}
+            - Audio: {', '.join(selected_audio) if selected_audio else 'None'}
+            - Documents: {', '.join(selected_docs) if selected_docs else 'None'}
             
             Business context:
             - Business Name: {st.session_state.business_data.get('business_name', 'Unknown')}
             - Industry: {st.session_state.business_data.get('industry', 'Unknown')}
             
-            What recommendations would you provide for improving their media assets for marketing purposes?
+            How can these media assets be used effectively in marketing?
+            What recommendations would you provide for improving these media assets?
+            What additional media might be useful for their marketing efforts?
             """
             
             try:
@@ -837,20 +985,123 @@ def media_gallery_page():
                 st.error(f"Analysis error: {str(e)}")
                 st.info("Please try again with fewer files or a simpler request.")
 
+# Add Text-to-Speech capability with gTTS
+try:
+    import os
+    import tempfile
+    from gtts import gTTS
+    
+    # Initialize TTS flag
+    if 'tts_active' not in st.session_state:
+        st.session_state.tts_active = False
+    if 'voice_speed' not in st.session_state:
+        st.session_state.voice_speed = "Normal"
+    
+    def text_to_speech(text, speed="Normal", language="en"):
+        """Convert text to speech using gTTS (female voice only)"""
+        if not text:
+            return None
+        
+        try:
+            # Configure TTS based on speed
+            slow_option = speed == "Slow"
+            
+            # Get the language code
+            lang_code = language
+            if language in LANGUAGES:
+                lang_code = language
+            
+            # Create the TTS object
+            tts = gTTS(text=text, lang=lang_code, slow=slow_option)
+            
+            # Save to a temporary file
+            with tempfile.NamedTemporaryFile(delete=False, suffix='.mp3') as fp:
+                tts.save(fp.name)
+                with open(fp.name, 'rb') as audio_file:
+                    audio_bytes = audio_file.read()
+                os.unlink(fp.name)  # Remove the temp file
+            
+            # Convert to base64 for the audio player
+            audio_base64 = base64.b64encode(audio_bytes).decode()
+            audio_player = f'<audio autoplay controls><source src="data:audio/mp3;base64,{audio_base64}"></audio>'
+            
+            return audio_player
+        except Exception as e:
+            st.error(f"TTS Error: {str(e)}")
+            return None
+    
+    # Add TTS controls to sidebar function
+    def add_tts_to_sidebar(sidebar_content):
+        with st.sidebar:
+            # After language selector
+            st.markdown("---")
+            
+            # TTS Controls
+            st.subheader("🔊 Text-to-Speech")
+            st.session_state.tts_active = st.toggle("Enable AI Voice", value=st.session_state.tts_active)
+            
+            st.session_state.voice_speed = st.select_slider(
+                "Voice Speed",
+                options=["Slow", "Normal", "Fast"],
+                value=st.session_state.voice_speed,
+                disabled=not st.session_state.tts_active
+            )
+            
+            if st.session_state.tts_active and st.button("Speak Current Analysis"):
+                if st.session_state.current_tts_text:
+                    # Create a short summary for TTS to avoid long audio
+                    summary_prompt = f"""
+                    Create a 3-4 sentence summary of the key points from this content. Focus only on the most important takeaways:
+                    
+                    {st.session_state.current_tts_text[:1000]}...
+                    """
+                    with st.spinner("Generating audio summary..."):
+                        summary = generate_with_gemini(summary_prompt, language=st.session_state.language)
+                        audio_player = text_to_speech(
+                            summary, 
+                            speed=st.session_state.voice_speed,
+                            language=st.session_state.language
+                        )
+                        if audio_player:
+                            st.markdown(audio_player, unsafe_allow_html=True)
+                else:
+                    st.warning("No analysis available to speak yet.")
+    
+    # Update sidebar function to include TTS if available
+    original_sidebar = sidebar
+    def sidebar_with_tts():
+        page = original_sidebar()
+        if 'gTTS' in globals():
+            add_tts_to_sidebar(st.sidebar)
+        return page
+    
+    # Replace the original sidebar function with the one that includes TTS
+    sidebar = sidebar_with_tts
+    
+    HAS_TTS = True
+except ImportError:
+    HAS_TTS = False
+    st.warning("Text-to-speech functionality is not available. Install gTTS for voice capabilities.")
+
 # Show requirements to help with installation
 def show_requirements():
     """Display the minimum required packages to run the app"""
     st.info("""
     ### Minimum Required Packages:
     ```
-    streamlit>=1.10.0
+    streamlit==1.28.0
     requests>=2.25.1
+    ```
+    
+    ### Optional Packages for Full Features:
+    ```
+    gtts>=2.3.0  # For text-to-speech
     ```
     
     This is a minimal version of the app that requires only essential packages.
     """)
 
-# Main application with super simplified implementation
+# Main application with error handling
 def main():
     # Initialize session state if not already done
     if 'language' not in st.session_state:
